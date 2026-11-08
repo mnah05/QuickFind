@@ -50,6 +50,16 @@ sh scripts/package-release.sh
 ```
 This produces `dist/QuickFind.dmg` and `dist/QuickFind.zip` containing a Universal 2 binary with full AppIcon assets and codesigning.
 
+### Automated Releases (GitHub Actions)
+The repository includes a GitHub Action workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)) that automatically builds the universal binary, packages the DMG & ZIP, and publishes the release on GitHub.
+
+To publish a new release:
+```sh
+git tag v1.0.1
+git push origin v1.0.1
+```
+You can also trigger it manually from the **Actions** tab on GitHub via `workflow_dispatch`.
+
 ---
 
 ## 🔒 Privacy & Permissions
