@@ -39,17 +39,17 @@ final class QuickFindModel: NSObject, ObservableObject {
             appEntries = cached.paths.map { AppSearchEntry(url: URL(fileURLWithPath: $0)) }
             appsReady = !appEntries.isEmpty
         }
-        Task.detached(priority: .utility) { [weak self] in
-            let urls = Self.discoverApps()
-            await MainActor.run {
-                guard let self else { return }
-                self.appEntries = urls.map { AppSearchEntry(url: $0) }
-                self.appsReady = true
-                if let data = try? JSONEncoder().encode(CachedAppCatalogue(paths: urls.map(\.path))) {
-                    UserDefaults.standard.set(data, forKey: self.appCatalogueKey)
-                }
-                self.search()
+        Task { [weak self] in
+            let urls = await Task.detached(priority: .utility) {
+                Self.discoverApps()
+            }.value
+            guard let self else { return }
+            self.appEntries = urls.map { AppSearchEntry(url: $0) }
+            self.appsReady = true
+            if let data = try? JSONEncoder().encode(CachedAppCatalogue(paths: urls.map(\.path))) {
+                UserDefaults.standard.set(data, forKey: self.appCatalogueKey)
             }
+            self.search()
         }
     }
 
