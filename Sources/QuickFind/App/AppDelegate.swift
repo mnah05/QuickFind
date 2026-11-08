@@ -31,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         closeAuxiliaryWindows()
         DispatchQueue.main.async { [weak self] in self?.closeAuxiliaryWindows() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.closeAuxiliaryWindows() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            UpdateManager.shared.checkAutomaticallyIfEnabled()
+        }
         showPanel()
     }
 

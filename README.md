@@ -41,6 +41,7 @@ Built as a **Universal 2 macOS application** natively supporting both Apple Sili
   - Units: `10 km to mi`, `100 f to c`, `60 sec to min`
   - Currency: `50 USD to EUR`, `100 EUR to JPY` (uses previously cached local rates; no network access)
 - **Clipboard History**: Search `clipboard` or `clip:query` to search copied history. Pin items with `⌘P` to preserve them permanently.
+- **Optional Update Checks**: Enable launch checks in Settings or check manually. QuickFind contacts GitHub only for release metadata; downloads start only when you choose an available update.
 - **Finder Navigation**: Select any file and press `⌘ Return` to show in Finder, or `⌘ Shift C` to copy the path.
 
 ---
@@ -64,8 +65,8 @@ The repository includes a GitHub Action workflow ([`.github/workflows/release.ym
 
 To publish a new release:
 ```sh
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.0.4
+git push origin v1.0.4
 ```
 You can also trigger it manually from the **Actions** tab on GitHub via `workflow_dispatch`. See [Release Workflow](docs/RELEASES.md) for full instructions.
 
@@ -73,7 +74,7 @@ You can also trigger it manually from the **Actions** tab on GitHub via `workflo
 
 ## 🔒 Privacy & Permissions
 
-- All indexing, ranking, currency rate cache, and clipboard history are stored strictly locally on your Mac. QuickFind does not make network requests.
+- All indexing, ranking, currency rate cache, and clipboard history are stored locally on your Mac. QuickFind makes no network requests unless you enable automatic update checks or choose “Check now”; those requests only check GitHub releases and download an update you select.
 - Sensitive pasteboards (such as 1Password passwords or transient types) are automatically ignored.
 - Clipboard capture can be paused at any time from the Settings menu.
 - QuickFind uses macOS Spotlight metadata and standard AppKit APIs.

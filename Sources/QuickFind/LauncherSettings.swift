@@ -215,10 +215,12 @@ struct PreferencesView: View {
     @ObservedObject var shortcutStatus = HotKeyStatus.shared
     @ObservedObject var loginItem = LoginItemManager.shared
     @ObservedObject var clipboard = ClipboardHistory.shared
+    @ObservedObject var updates = UpdateManager.shared
     @ObservedObject private var recorder = ShortcutRecorderState.shared
     let goBack: () -> Void
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 Button {
@@ -293,7 +295,24 @@ struct PreferencesView: View {
             }.padding(.top, 12)
             Text("Pinned items don’t expire. Clipboard text stays on this Mac.")
                 .font(.system(size: 11)).foregroundStyle(.secondary).padding(.leading, 25).padding(.top, 4)
-            Spacer()
+
+            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1).padding(.vertical, 16)
+            Text("UPDATES").font(.system(size: 10, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
+            Toggle(isOn: $updates.automaticChecksEnabled) {
+                Label("Check for updates automatically", systemImage: "arrow.down.circle")
+            }.toggleStyle(.switch).padding(.top, 8)
+            HStack(alignment: .top, spacing: 8) {
+                Text(updates.statusMessage)
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Button("Check now") { updates.checkNow() }
+                    .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Color.accentColor)
+                    .disabled(updates.isChecking)
+            }.padding(.leading, 25).padding(.top, 5)
+            Text("When enabled, QuickFind checks GitHub at launch. Downloads start only after you choose Download Update.")
+                .font(.system(size: 10.5)).foregroundStyle(.tertiary).padding(.leading, 25).padding(.top, 4)
+
             Button(role: .destructive) { NSApp.terminate(nil) } label: {
                 Label("Quit QuickFind", systemImage: "power")
             }.buttonStyle(.plain).foregroundStyle(.secondary)
@@ -301,8 +320,11 @@ struct PreferencesView: View {
         .padding(.horizontal, 22)
         .padding(.top, 18)
         .padding(.bottom, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(Color.clear)
+        }
+        .scrollIndicators(.hidden)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { loginItem.refreshStatus() }
     }
 }
