@@ -1,0 +1,20 @@
+# Xcode and SPM
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Build and Distribution artifacts
+*.dmg
+*.zip
+dist/
+
+# Editor
+.vscode/
+.idea/
