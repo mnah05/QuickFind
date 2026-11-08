@@ -65,8 +65,8 @@ The repository includes a GitHub Action workflow ([`.github/workflows/release.ym
 
 To publish a new release:
 ```sh
-git tag v1.0.6
-git push origin v1.0.6
+git tag v1.0.7
+git push origin v1.0.7
 ```
 You can also trigger it manually from the **Actions** tab on GitHub via `workflow_dispatch`. See [Release Workflow](docs/RELEASES.md) for full instructions.
 

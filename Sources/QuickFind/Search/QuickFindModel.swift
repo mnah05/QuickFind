@@ -4,11 +4,11 @@ import Combine
 private struct CachedAppCatalogue: Codable { let paths: [String] }
 
 private struct AppSearchEntry {
-    let result: SearchResult
+    let url: URL
     let normalizedName: String
     init(url: URL) {
-        result = SearchResult.app(url: url)
-        normalizedName = FuzzyMatcher.normalize(result.title)
+        self.url = url
+        normalizedName = FuzzyMatcher.normalize(url.deletingPathExtension().lastPathComponent)
     }
 }
 
@@ -124,18 +124,19 @@ final class QuickFindModel: NSObject, ObservableObject {
 
     private func defaultSuggestions() -> [SearchResult] {
         guard appsReady else { return [] }
-        let ranked = appEntries.compactMap { entry -> (Int, Date, SearchResult)? in
-            guard let url = entry.result.url else { return nil }
-            let usage = UsageTracker.shared.usageRank(for: url)
-            return (usage.count, usage.lastUsed ?? Date.distantPast, entry.result)
+        let ranked = appEntries.map { entry -> (Int, Date, URL) in
+            let usage = UsageTracker.shared.usageRank(for: entry.url)
+            return (usage.count, usage.lastUsed ?? Date.distantPast, entry.url)
         }
         .sorted {
             if $0.0 != $1.0 { return $0.0 > $1.0 }
             if $0.1 != $1.1 { return $0.1 > $1.1 }
-            return $0.2.title.localizedStandardCompare($1.2.title) == .orderedAscending
+            let leftName = $0.2.deletingPathExtension().lastPathComponent
+            let rightName = $1.2.deletingPathExtension().lastPathComponent
+            return leftName.localizedStandardCompare(rightName) == .orderedAscending
         }
         .prefix(15)
-        .map(\.2)
+        .map { SearchResult.app(url: $0.2) }
 
         var items = Array(ranked)
         items.append(SearchResult(
@@ -151,16 +152,19 @@ final class QuickFindModel: NSObject, ObservableObject {
 
     private func rankedApps(matching text: String) -> [SearchResult] {
         let normalizedQuery = FuzzyMatcher.normalize(text)
-        return appEntries.compactMap { entry -> (Double, SearchResult)? in
-            guard let url = entry.result.url,
-                  let rank = UsageTracker.shared.score(normalizedName: entry.normalizedName, query: normalizedQuery, url: url) else { return nil }
-            return (rank, entry.result)
+        return appEntries.compactMap { entry -> (Double, URL)? in
+            guard let rank = UsageTracker.shared.score(normalizedName: entry.normalizedName, query: normalizedQuery, url: entry.url) else { return nil }
+            return (rank, entry.url)
         }
         .sorted {
-            if $0.0 == $1.0 { return $0.1.title.localizedStandardCompare($1.1.title) == .orderedAscending }
+            if $0.0 == $1.0 {
+                let leftName = $0.1.deletingPathExtension().lastPathComponent
+                let rightName = $1.1.deletingPathExtension().lastPathComponent
+                return leftName.localizedStandardCompare(rightName) == .orderedAscending
+            }
             return $0.0 < $1.0
         }
-        .map(\.1)
+        .map { SearchResult.app(url: $0.1) }
     }
 
     private func startFileSearch(for text: String) {

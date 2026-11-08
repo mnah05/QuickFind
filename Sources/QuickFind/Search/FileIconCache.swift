@@ -4,7 +4,7 @@ import AppKit
 enum FileIconCache {
     private static let cache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
-        cache.countLimit = 400
+        cache.countLimit = 128
         return cache
     }()
 
