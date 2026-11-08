@@ -310,7 +310,7 @@ struct PreferencesView: View {
                     .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Color.accentColor)
                     .disabled(updates.isChecking)
             }.padding(.leading, 25).padding(.top, 5)
-            Text("When enabled, QuickFind checks GitHub at launch. Downloads start only after you choose Download Update.")
+            Text("When enabled, QuickFind checks GitHub at most once a day at launch. Downloads start only after you choose Download Update.")
                 .font(.system(size: 10.5)).foregroundStyle(.tertiary).padding(.leading, 25).padding(.top, 4)
 
             Button(role: .destructive) { NSApp.terminate(nil) } label: {

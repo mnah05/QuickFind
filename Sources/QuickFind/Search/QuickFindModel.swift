@@ -205,7 +205,8 @@ final class QuickFindModel: NSObject, ObservableObject {
             stopFileSearch()
             return
         }
-        let count = min(query.resultCount, 80)
+        // Rank a larger Spotlight sample so alphabetical ordering is less likely to hide strong matches.
+        let count = min(query.resultCount, 250)
         let items = (0..<count).compactMap { query.result(at: $0) as? NSMetadataItem }
         let files = items.compactMap { item -> (Double, SearchResult)? in
             let path = (item.value(forAttribute: NSMetadataItemPathKey) as? String)

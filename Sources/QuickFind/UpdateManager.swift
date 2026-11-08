@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CryptoKit
 import Foundation
 
 @MainActor
@@ -18,6 +19,7 @@ final class UpdateManager: ObservableObject {
     private let releaseEndpoint = URL(string: "https://api.github.com/repos/mnah05/QuickFind/releases/latest")!
     private var promptIsVisible = false
     private let dismissedVersionKey = "dismissedUpdateVersion.v1"
+    private let lastCheckDateKey = "lastSuccessfulUpdateCheck.v1"
 
     private init() {
         automaticChecksEnabled = UserDefaults.standard.bool(forKey: "automaticUpdateChecks.v1")
@@ -25,10 +27,19 @@ final class UpdateManager: ObservableObject {
 
     func checkAutomaticallyIfEnabled() {
         guard automaticChecksEnabled else { return }
-        checkNow()
+        if let lastCheck = UserDefaults.standard.object(forKey: lastCheckDateKey) as? Date,
+           Date().timeIntervalSince(lastCheck) < 24 * 60 * 60 {
+            statusMessage = "Automatic update checks run at most once every 24 hours."
+            return
+        }
+        beginCheck()
     }
 
     func checkNow() {
+        beginCheck()
+    }
+
+    private func beginCheck() {
         guard !isChecking else { return }
         isChecking = true
         statusMessage = "Checking GitHub for a newer release…"
@@ -54,6 +65,7 @@ final class UpdateManager: ObservableObject {
                   release.htmlURL.host == "github.com" else {
                 throw UpdateError.invalidResponse
             }
+            UserDefaults.standard.set(Date(), forKey: lastCheckDateKey)
 
             let latestVersion = release.tagName.hasPrefix("v") ? String(release.tagName.dropFirst()) : release.tagName
             guard Self.isVersion(latestVersion, newerThan: installedVersion) else {
@@ -115,8 +127,24 @@ final class UpdateManager: ObservableObject {
                 request.timeoutInterval = 120
                 let (temporaryURL, response) = try await URLSession.shared.download(for: request)
                 guard let response = response as? HTTPURLResponse,
-                      (200..<300).contains(response.statusCode) else {
+                      (200..<300).contains(response.statusCode),
+                      let finalURL = response.url,
+                      Self.isTrustedDownloadURL(finalURL) else {
                     throw UpdateError.invalidResponse
+                }
+                let fileSize = try FileManager.default.attributesOfItem(atPath: temporaryURL.path)[.size] as? NSNumber
+                guard fileSize?.int64Value == asset.size,
+                      asset.size > 0,
+                      asset.size <= 500_000_000 else {
+                    throw UpdateError.invalidResponse
+                }
+                if let expectedDigest = asset.digest, expectedDigest.hasPrefix("sha256:") {
+                    let actualDigest = try await Task.detached(priority: .utility) {
+                        try Self.sha256Hex(of: temporaryURL)
+                    }.value
+                    guard actualDigest == String(expectedDigest.dropFirst("sha256:".count)).lowercased() else {
+                        throw UpdateError.invalidResponse
+                    }
                 }
 
                 let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
@@ -145,6 +173,21 @@ final class UpdateManager: ObservableObject {
         }
         return false
     }
+
+    private static func isTrustedDownloadURL(_ url: URL) -> Bool {
+        guard url.scheme == "https", let host = url.host else { return false }
+        return ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"].contains(host)
+    }
+
+    nonisolated private static func sha256Hex(of url: URL) throws -> String {
+        let file = try FileHandle(forReadingFrom: url)
+        defer { try? file.close() }
+        var hasher = SHA256()
+        while let data = try file.read(upToCount: 1024 * 1024), !data.isEmpty {
+            hasher.update(data: data)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
 }
 
 private struct GitHubRelease: Decodable {
@@ -161,10 +204,13 @@ private struct GitHubRelease: Decodable {
     struct Asset: Decodable {
         let name: String
         let downloadURL: URL
+        let size: Int64
+        let digest: String?
 
         enum CodingKeys: String, CodingKey {
             case name
             case downloadURL = "browser_download_url"
+            case size, digest
         }
     }
 }

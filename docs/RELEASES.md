@@ -14,14 +14,14 @@ QuickFind features an automated release workflow powered by GitHub Actions ([`.g
    git pull origin main
    ```
 
-2. Create a new semantic version tag (must start with `v`, e.g., `v1.0.4`, `v1.1.0`):
+2. Create a new semantic version tag (must start with `v`, e.g., `v1.0.5`, `v1.1.0`):
    ```bash
-   git tag v1.0.4
+   git tag v1.0.5
    ```
 
 3. Push the tag to GitHub:
    ```bash
-   git push origin v1.0.4
+   git push origin v1.0.5
    ```
 
 4. The GitHub Action will automatically:
@@ -39,7 +39,7 @@ QuickFind features an automated release workflow powered by GitHub Actions ([`.g
 1. Go to the [Actions tab](https://github.com/mnah05/QuickFind/actions) on GitHub.
 2. In the left sidebar, click **Release**.
 3. Click the **Run workflow** dropdown on the right.
-4. Enter the desired tag name (e.g. `v1.0.4`).
+4. Enter the desired tag name (e.g. `v1.0.5`).
 5. Click **Run workflow**.
 
 ---
