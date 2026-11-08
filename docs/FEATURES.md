@@ -59,4 +59,4 @@ Searches local files via macOS Spotlight metadata:
 Enter expressions directly into the search bar:
 - **Math**: `25 * 4`, `(100 - 25) / 5`, `2^16`, `10 % 3`
 - **Unit Conversions**: `10 km to mi`, `60 sec to min`, `100 f to c`, `1 kg to lb`
-- **Currency Conversions**: `100 USD to EUR`, `50 GBP to JPY` (fetches daily exchange rates with local offline fallback)
+- **Currency Conversions**: `100 USD to EUR`, `50 GBP to JPY` (uses a previously cached local rate for up to seven days; no network lookup is performed. Without a cached rate, conversion is unavailable.)

@@ -27,7 +27,11 @@ final class UsageTracker: ObservableObject {
     }
 
     func score(name: String, query: String, url: URL) -> Double? {
-        guard let matchScore = FuzzyMatcher.score(name: name, query: query) else { return nil }
+        score(normalizedName: FuzzyMatcher.normalize(name), query: FuzzyMatcher.normalize(query), url: url)
+    }
+
+    func score(normalizedName: String, query: String, url: URL) -> Double? {
+        guard let matchScore = FuzzyMatcher.score(normalizedName: normalizedName, normalizedQuery: query) else { return nil }
         let record = records[url.standardizedFileURL.path]
         let usageBoost = min(log1p(Double(record?.count ?? 0)) * 3.5, 14)
         let ageHours = record.map { max(Date().timeIntervalSince($0.lastUsed) / 3600, 0) } ?? 10_000
@@ -52,9 +56,11 @@ final class UsageTracker: ObservableObject {
 
 enum FuzzyMatcher {
     static func score(name: String, query: String) -> Double? {
-        let needle = normalize(query.trimmingCharacters(in: .whitespacesAndNewlines))
+        score(normalizedName: normalize(name), normalizedQuery: normalize(query.trimmingCharacters(in: .whitespacesAndNewlines)))
+    }
+
+    static func score(normalizedName candidate: String, normalizedQuery needle: String) -> Double? {
         guard !needle.isEmpty else { return nil }
-        let candidate = normalize(name)
         if candidate == needle { return 0 }
         if candidate.hasPrefix(needle) { return 25 + Double(candidate.count - needle.count) * 0.03 }
 
@@ -79,7 +85,7 @@ enum FuzzyMatcher {
         return 95 + Double(gaps) * 2.2 + Double(firstMatchIndex) * 0.6 + Double(candidateChars.count - queryChars.count) * 0.04
     }
 
-    private static func normalize(_ value: String) -> String {
+    static func normalize(_ value: String) -> String {
         value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).lowercased()
     }
 }

@@ -9,45 +9,10 @@ struct CalculationDisplay: Identifiable, Equatable {
     let copyText: String
     let state: State
 }
-
 struct CurrencyRequest: Equatable {
     let amount: Double
     let base: String
     let quote: String
-}
-
-struct CurrencyRate: Decodable {
-    let date: String
-    let base: String
-    let quote: String
-    let rate: Double
-
-    private enum CodingKeys: String, CodingKey {
-        case date, base, quote, rate, rates
-    }
-
-    init(date: String, base: String, quote: String, rate: Double) {
-        self.date = date
-        self.base = base
-        self.quote = quote
-        self.rate = rate
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let date = try container.decodeIfPresent(String.self, forKey: .date) ?? ""
-        let base = try container.decodeIfPresent(String.self, forKey: .base) ?? ""
-        if let quote = try container.decodeIfPresent(String.self, forKey: .quote),
-           let rate = try container.decodeIfPresent(Double.self, forKey: .rate) {
-            self.init(date: date, base: base, quote: quote, rate: rate)
-            return
-        }
-        let rates = try container.decode([String: Double].self, forKey: .rates)
-        guard let (quote, rate) = rates.first else {
-            throw DecodingError.dataCorruptedError(forKey: .rates, in: container, debugDescription: "Missing rate")
-        }
-        self.init(date: date, base: base, quote: quote, rate: rate)
-    }
 }
 
 struct CachedCurrencyRate: Codable {
@@ -341,18 +306,5 @@ private struct ArithmeticParser {
         }
         if matches { index += 1 }
         return matches
-    }
-}
-
-enum CurrencyRateService {
-    static func latestRate(base: String, quote: String) async throws -> CurrencyRate {
-        guard let url = URL(string: "https://api.frankfurter.dev/v2/rate/\(base.lowercased())/\(quote.lowercased())") else { throw URLError(.badURL) }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 4
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else { throw URLError(.cannotParseResponse) }
-        let rate = try JSONDecoder().decode(CurrencyRate.self, from: data)
-        guard rate.rate.isFinite, rate.rate > 0 else { throw URLError(.cannotParseResponse) }
-        return rate
     }
 }

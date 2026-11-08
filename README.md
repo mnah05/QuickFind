@@ -39,7 +39,7 @@ Built as a **Universal 2 macOS application** natively supporting both Apple Sili
 - **Inline Calculator & Conversions**:
   - Math: `12 * 45`, `(100 - 30) / 7`, `2^8`
   - Units: `10 km to mi`, `100 f to c`, `60 sec to min`
-  - Currency: `50 USD to EUR`, `100 EUR to JPY` (with local offline caching)
+  - Currency: `50 USD to EUR`, `100 EUR to JPY` (uses previously cached local rates; no network access)
 - **Clipboard History**: Search `clipboard` or `clip:query` to search copied history. Pin items with `⌘P` to preserve them permanently.
 - **Finder Navigation**: Select any file and press `⌘ Return` to show in Finder, or `⌘ Shift C` to copy the path.
 
@@ -73,7 +73,7 @@ You can also trigger it manually from the **Actions** tab on GitHub via `workflo
 
 ## 🔒 Privacy & Permissions
 
-- All indexing, ranking, and clipboard history are stored strictly locally on your Mac.
+- All indexing, ranking, currency rate cache, and clipboard history are stored strictly locally on your Mac. QuickFind does not make network requests.
 - Sensitive pasteboards (such as 1Password passwords or transient types) are automatically ignored.
 - Clipboard capture can be paused at any time from the Settings menu.
 - QuickFind uses macOS Spotlight metadata and standard AppKit APIs.

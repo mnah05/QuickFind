@@ -1,6 +1,17 @@
 import AppKit
 import Combine
 
+private struct CachedAppCatalogue: Codable { let paths: [String] }
+
+private struct AppSearchEntry {
+    let result: SearchResult
+    let normalizedName: String
+    init(url: URL) {
+        result = SearchResult.app(url: url)
+        normalizedName = FuzzyMatcher.normalize(result.title)
+    }
+}
+
 @MainActor
 final class QuickFindModel: NSObject, ObservableObject {
     @Published var query = "" { didSet { search() } }
@@ -10,11 +21,11 @@ final class QuickFindModel: NSObject, ObservableObject {
     @Published private(set) var appsReady = false
     @Published private(set) var parsed: ParsedQuery = .empty
 
-    private var appURLs: [URL] = []
+    private var appEntries: [AppSearchEntry] = []
+    private let appCatalogueKey = "appCatalogue.v1"
     private var metadataQuery: NSMetadataQuery?
     private var fileSearchWorkItem: DispatchWorkItem?
     private var fileSearchTimeout: DispatchWorkItem?
-    private var currencyTask: Task<Void, Never>?
     private var currencyRates: [String: CachedCurrencyRate] = {
         guard let data = UserDefaults.standard.data(forKey: "currencyRates.v1"),
               let rates = try? JSONDecoder().decode([String: CachedCurrencyRate].self, from: data) else { return [:] }
@@ -23,12 +34,20 @@ final class QuickFindModel: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        Task.detached(priority: .userInitiated) { [weak self] in
+        if let data = UserDefaults.standard.data(forKey: appCatalogueKey),
+           let cached = try? JSONDecoder().decode(CachedAppCatalogue.self, from: data) {
+            appEntries = cached.paths.map { AppSearchEntry(url: URL(fileURLWithPath: $0)) }
+            appsReady = !appEntries.isEmpty
+        }
+        Task.detached(priority: .utility) { [weak self] in
             let urls = Self.discoverApps()
             await MainActor.run {
                 guard let self else { return }
-                self.appURLs = urls
+                self.appEntries = urls.map { AppSearchEntry(url: $0) }
                 self.appsReady = true
+                if let data = try? JSONEncoder().encode(CachedAppCatalogue(paths: urls.map(\.path))) {
+                    UserDefaults.standard.set(data, forKey: self.appCatalogueKey)
+                }
                 self.search()
             }
         }
@@ -37,7 +56,6 @@ final class QuickFindModel: NSObject, ObservableObject {
     func search() {
         fileSearchWorkItem?.cancel()
         fileSearchTimeout?.cancel()
-        currencyTask?.cancel()
         calculation = nil
         searchingFiles = false
         stopFileSearch()
@@ -57,14 +75,13 @@ final class QuickFindModel: NSObject, ObservableObject {
             } else {
                 let key = "\(request.base)-\(request.quote)"
                 let inverseKey = "\(request.quote)-\(request.base)"
-                if let cached = currencyRates[key], Date().timeIntervalSince(cached.fetchedAt) < 24 * 60 * 60 {
-                    calculation = CalculatorEngine.currencyDisplay(for: request, input: query, rate: cached.rate, date: cached.date)
-                } else if let inverse = currencyRates[inverseKey], Date().timeIntervalSince(inverse.fetchedAt) < 24 * 60 * 60 {
-                    calculation = CalculatorEngine.currencyDisplay(for: request, input: query, rate: 1 / inverse.rate, date: inverse.date)
+                if let cached = currencyRates[key], Date().timeIntervalSince(cached.fetchedAt) < 7 * 24 * 60 * 60 {
+                    calculation = CalculatorEngine.currencyDisplay(for: request, input: query, rate: cached.rate, date: cached.date, detailPrefix: "Local cached reference rate")
+                } else if let inverse = currencyRates[inverseKey], Date().timeIntervalSince(inverse.fetchedAt) < 7 * 24 * 60 * 60 {
+                    calculation = CalculatorEngine.currencyDisplay(for: request, input: query, rate: 1 / inverse.rate, date: inverse.date, detailPrefix: "Local cached inverse rate")
                 } else {
-                    calculation = CalculatorEngine.loadingCurrency(query, request: request)
+                    calculation = CalculatorEngine.error(query, "Currency conversion needs a locally cached rate. No rate is available offline.")
                 }
-                loadCurrencyRate(request, input: query)
             }
         case .calculation(let display):
             calculation = display
@@ -107,10 +124,10 @@ final class QuickFindModel: NSObject, ObservableObject {
 
     private func defaultSuggestions() -> [SearchResult] {
         guard appsReady else { return [] }
-        let ranked = appURLs.map { url -> (Int, Date, SearchResult) in
-            let result = SearchResult.app(url: url)
+        let ranked = appEntries.compactMap { entry -> (Int, Date, SearchResult)? in
+            guard let url = entry.result.url else { return nil }
             let usage = UsageTracker.shared.usageRank(for: url)
-            return (usage.count, usage.lastUsed ?? Date.distantPast, result)
+            return (usage.count, usage.lastUsed ?? Date.distantPast, entry.result)
         }
         .sorted {
             if $0.0 != $1.0 { return $0.0 > $1.0 }
@@ -133,50 +150,17 @@ final class QuickFindModel: NSObject, ObservableObject {
     }
 
     private func rankedApps(matching text: String) -> [SearchResult] {
-        appURLs.compactMap { url -> (Double, SearchResult)? in
-            let result = SearchResult.app(url: url)
-            guard let rank = UsageTracker.shared.score(name: result.title, query: text, url: url) else { return nil }
-            return (rank, result)
+        let normalizedQuery = FuzzyMatcher.normalize(text)
+        return appEntries.compactMap { entry -> (Double, SearchResult)? in
+            guard let url = entry.result.url,
+                  let rank = UsageTracker.shared.score(normalizedName: entry.normalizedName, query: normalizedQuery, url: url) else { return nil }
+            return (rank, entry.result)
         }
         .sorted {
             if $0.0 == $1.0 { return $0.1.title.localizedStandardCompare($1.1.title) == .orderedAscending }
             return $0.0 < $1.0
         }
         .map(\.1)
-    }
-
-    private func loadCurrencyRate(_ request: CurrencyRequest, input: String) {
-        currencyTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            guard let self, !Task.isCancelled, self.query == input else { return }
-            let key = "\(request.base)-\(request.quote)"
-            let inverseKey = "\(request.quote)-\(request.base)"
-            do {
-                if let cached = currencyRates[key], Date().timeIntervalSince(cached.fetchedAt) < 24 * 60 * 60 {
-                    calculation = CalculatorEngine.currencyDisplay(for: request, input: input, rate: cached.rate, date: cached.date)
-                    return
-                }
-                if let inverse = currencyRates[inverseKey], Date().timeIntervalSince(inverse.fetchedAt) < 24 * 60 * 60 {
-                    calculation = CalculatorEngine.currencyDisplay(for: request, input: input, rate: 1 / inverse.rate, date: inverse.date)
-                    return
-                }
-                let response = try await CurrencyRateService.latestRate(base: request.base, quote: request.quote)
-                guard !Task.isCancelled, query == input else { return }
-                let cached = CachedCurrencyRate(rate: response.rate, date: response.date, fetchedAt: Date())
-                currencyRates[key] = cached
-                if let data = try? JSONEncoder().encode(currencyRates) { UserDefaults.standard.set(data, forKey: "currencyRates.v1") }
-                calculation = CalculatorEngine.currencyDisplay(for: request, input: input, rate: response.rate, date: response.date)
-            } catch {
-                guard !Task.isCancelled, query == input else { return }
-                if let cached = currencyRates[key], Date().timeIntervalSince(cached.fetchedAt) < 7 * 24 * 60 * 60 {
-                    calculation = CalculatorEngine.currencyDisplay(for: request, input: input, rate: cached.rate, date: cached.date, detailPrefix: "Offline cached rate")
-                } else if let inverse = currencyRates[inverseKey], Date().timeIntervalSince(inverse.fetchedAt) < 7 * 24 * 60 * 60 {
-                    calculation = CalculatorEngine.currencyDisplay(for: request, input: input, rate: 1 / inverse.rate, date: inverse.date, detailPrefix: "Offline cached inverse rate")
-                } else {
-                    calculation = CalculatorEngine.error(input, "Currency rate unavailable. Check the currency codes or connection.")
-                }
-            }
-        }
     }
 
     private func startFileSearch(for text: String) {
