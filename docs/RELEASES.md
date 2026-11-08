@@ -14,18 +14,18 @@ QuickFind features an automated release workflow powered by GitHub Actions ([`.g
    git pull origin main
    ```
 
-2. Create a new semantic version tag (must start with `v`, e.g., `v1.0.1`, `v1.1.0`):
+2. Create a new semantic version tag (must start with `v`, e.g., `v1.0.2`, `v1.1.0`):
    ```bash
-   git tag v1.0.1
+   git tag v1.0.2
    ```
 
 3. Push the tag to GitHub:
    ```bash
-   git push origin v1.0.1
+   git push origin v1.0.2
    ```
 
 4. The GitHub Action will automatically:
-   - Check out the repository on an Apple Silicon (`macos-14`) runner.
+   - Check out the repository on an Apple Silicon (`macos-15`) runner.
    - Run `scripts/package-release.sh`.
    - Compile both Apple Silicon (`arm64`) and Intel (`x86_64`) binaries.
    - Merge them with `lipo` into a single Universal 2 binary.
@@ -39,7 +39,7 @@ QuickFind features an automated release workflow powered by GitHub Actions ([`.g
 1. Go to the [Actions tab](https://github.com/mnah05/QuickFind/actions) on GitHub.
 2. In the left sidebar, click **Release**.
 3. Click the **Run workflow** dropdown on the right.
-4. Enter the desired tag name (e.g. `v1.0.1`).
+4. Enter the desired tag name (e.g. `v1.0.2`).
 5. Click **Run workflow**.
 
 ---
