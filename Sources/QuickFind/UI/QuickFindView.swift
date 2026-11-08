@@ -312,8 +312,7 @@ struct QuickFindView: View {
                 result: result,
                 selected: result.id == selection.selectedResultID,
                 number: number,
-                query: highlightQuery,
-                reserveIndexColumn: model.results.contains(where: { $0.kind == .app })
+                query: highlightQuery
             )
         }
         .buttonStyle(.plain)

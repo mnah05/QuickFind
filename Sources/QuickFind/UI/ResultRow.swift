@@ -22,7 +22,6 @@ struct ResultRow: View {
     let selected: Bool
     let number: Int?
     let query: String
-    var reserveIndexColumn = false
 
     var body: some View {
         HStack(spacing: 10) {

@@ -234,6 +234,10 @@ struct RaycastActionPanel: View {
         .shadow(color: .black.opacity(0.4), radius: 24, x: 0, y: 12)
         .onAppear {
             isFieldFocused = true
+            state.filter = ""
+            state.selectedIndex = 0
+        }
+        .onChange(of: state.filter) { _, _ in
             state.selectedIndex = 0
         }
     }
