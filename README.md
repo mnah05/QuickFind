@@ -6,18 +6,27 @@ Built as a **Universal 2 macOS application** natively supporting both Apple Sili
 
 ---
 
-## 🚀 Installation on Any Mac
+## 📚 Documentation
 
-### Option 1: Download Prebuilt Release (DMG)
-1. Download `QuickFind.dmg` from the [Latest Release](../../releases/latest).
+- 📥 [**Installation & Gatekeeper Guide**](docs/INSTALLATION.md) — Step-by-step setup for any Mac, DMG/ZIP instructions, and security approvals.
+- ✨ [**Features & User Guide**](docs/FEATURES.md) — Comprehensive guide to Raycast UI, shortcuts, fuzzy search, clipboard, and calculator.
+- 🚀 [**Release & CI/CD Workflow**](docs/RELEASES.md) — How the GitHub Actions automated release pipeline builds and deploys Universal 2 releases.
+
+---
+
+## 🚀 Quick Install on Any Mac
+
+### Prebuilt Release (DMG)
+1. Download `QuickFind.dmg` from the [Latest Release](https://github.com/mnah05/QuickFind/releases/latest).
 2. Open the disk image and drag **QuickFind.app** into your **Applications** folder.
-3. Open `QuickFind` from your Applications folder.
+3. Launch `QuickFind` from Applications.
 
 > [!NOTE]
 > **First-Launch on macOS (Gatekeeper)**:
-> Since QuickFind is ad-hoc signed, macOS may prompt: *"QuickFind cannot be opened because Apple cannot check it for malicious software"* or *"is damaged"*.
-> - **Easy fix**: Right-click (or Control-click) **QuickFind.app** in `Applications` and select **Open**, then click **Open**.
-> - **Or via Terminal**: Run `xattr -cr /Applications/QuickFind.app` to remove the quarantine flag.
+> Since QuickFind is open-source and ad-hoc signed:
+> - **Easy fix**: Right-click (or Control-click) `QuickFind.app` in `Applications`, select **Open**, and confirm.
+> - **Or via Terminal**: Run `xattr -cr /Applications/QuickFind.app`.
+> - See the full [Installation Guide](docs/INSTALLATION.md) for details.
 
 ---
 
@@ -25,7 +34,7 @@ Built as a **Universal 2 macOS application** natively supporting both Apple Sili
 
 - **Toggle Launcher**: Default is `Option + Space` (customizable in Settings `⌘,`).
 - **Split Preview Pane**: View application info, file paths, dimensions/sizes, calculation details, and full clipboard previews with live word/character stats.
-- **Raycast-Style Actions**: Press `⌘K` to trigger the contextual Actions panel (Open, Reveal in Finder, Copy Path, Copy Name, Toggle Pin, Quit).
+- **Raycast Actions Panel (`⌘K`)**: Instant contextual actions including Open, Reveal in Finder (`⌘↵`), Copy Path (`⌘⇧C`), Copy Name, Toggle Pin (`⌘P`), Settings, and Quit.
 - **Numbered App Launching**: Press `⌘1`–`⌘9` to immediately launch top app matches.
 - **Inline Calculator & Conversions**:
   - Math: `12 * 45`, `(100 - 30) / 7`, `2^8`
@@ -44,7 +53,7 @@ sh scripts/build-app.sh
 open "$HOME/Applications/QuickFind.app"
 ```
 
-### Packaging Universal Release (DMG & ZIP)
+### Packaging Universal Release Locally (DMG & ZIP)
 ```sh
 sh scripts/package-release.sh
 ```
@@ -58,12 +67,13 @@ To publish a new release:
 git tag v1.0.1
 git push origin v1.0.1
 ```
-You can also trigger it manually from the **Actions** tab on GitHub via `workflow_dispatch`.
+You can also trigger it manually from the **Actions** tab on GitHub via `workflow_dispatch`. See [Release Workflow](docs/RELEASES.md) for full instructions.
 
 ---
 
 ## 🔒 Privacy & Permissions
 
 - All indexing, ranking, and clipboard history are stored strictly locally on your Mac.
+- Sensitive pasteboards (such as 1Password passwords or transient types) are automatically ignored.
 - Clipboard capture can be paused at any time from the Settings menu.
 - QuickFind uses macOS Spotlight metadata and standard AppKit APIs.
