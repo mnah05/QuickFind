@@ -1,14 +1,48 @@
 import AppKit
 import Combine
+import CoreServices
 
-private struct CachedAppCatalogue: Codable { let paths: [String] }
+private struct CachedAppCatalogue: Codable, Sendable {
+    var paths: [String]
+    var eventID: UInt64?
+    var osVersion: String?
+}
 
-private struct AppSearchEntry {
+struct AppSearchEntry: Sendable {
     let url: URL
-    let normalizedName: String
+    let names: [String]
+
     init(url: URL) {
+        self.init(url: url, names: Self.names(for: url))
+    }
+
+    init(url: URL, names: [String]) {
         self.url = url
-        normalizedName = FuzzyMatcher.normalize(url.deletingPathExtension().lastPathComponent)
+        self.names = names.isEmpty ? [url.deletingPathExtension().lastPathComponent] : names
+    }
+
+    private static func names(for url: URL) -> [String] {
+        var names: [String] = []
+        func add(_ value: String?) {
+            guard var trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return }
+            if trimmed.lowercased().hasSuffix(".app") {
+                trimmed = String(trimmed.dropLast(4))
+            }
+            guard !trimmed.isEmpty, !names.contains(trimmed) else { return }
+            names.append(trimmed)
+        }
+
+        add(url.deletingPathExtension().lastPathComponent)
+        add(FileManager.default.displayName(atPath: url.path))
+        guard let bundle = Bundle(url: url) else { return names }
+        add(bundle.localizedInfoDictionary?["CFBundleDisplayName"] as? String)
+        add(bundle.infoDictionary?["CFBundleDisplayName"] as? String)
+        add(bundle.localizedInfoDictionary?["CFBundleName"] as? String)
+        add(bundle.infoDictionary?["CFBundleName"] as? String)
+        if let identifier = bundle.bundleIdentifier {
+            add(identifier.split(separator: ".").last.map(String.init))
+        }
+        return names
     }
 }
 
@@ -23,7 +57,13 @@ final class QuickFindModel: NSObject, ObservableObject {
 
     private var appEntries: [AppSearchEntry] = []
     private let appCatalogueKey = "appCatalogue.v1"
-    private var metadataQuery: NSMetadataQuery?
+    private let catalogueMonitor = AppCatalogueMonitor()
+    private var catalogueToken = 0
+    private var catalogueRefresh: DispatchWorkItem?
+    private var activeFileQueries: [NSMetadataQuery] = []
+    private var fileQueryLimits: [ObjectIdentifier: Int] = [:]
+    private var gatheredFileURLs: [URL] = []
+    private var fileSearchPublished = false
     private var fileSearchWorkItem: DispatchWorkItem?
     private var fileSearchTimeout: DispatchWorkItem?
     private var currencyRates: [String: CachedCurrencyRate] = {
@@ -34,22 +74,29 @@ final class QuickFindModel: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        if let data = UserDefaults.standard.data(forKey: appCatalogueKey),
-           let cached = try? JSONDecoder().decode(CachedAppCatalogue.self, from: data) {
-            appEntries = cached.paths.map { AppSearchEntry(url: URL(fileURLWithPath: $0)) }
-            appsReady = !appEntries.isEmpty
-        }
-        Task { [weak self] in
-            let urls = await Task.detached(priority: .utility) {
-                Self.discoverApps()
-            }.value
-            guard let self else { return }
-            self.appEntries = urls.map { AppSearchEntry(url: $0) }
-            self.appsReady = true
-            if let data = try? JSONEncoder().encode(CachedAppCatalogue(paths: urls.map(\.path))) {
-                UserDefaults.standard.set(data, forKey: self.appCatalogueKey)
+        let cached = loadCatalogue()
+        if let cached {
+            appEntries = cached.paths.map { path in
+                let url = URL(fileURLWithPath: path)
+                return AppSearchEntry(url: url, names: [url.deletingPathExtension().lastPathComponent])
             }
-            self.search()
+            appsReady = !appEntries.isEmpty
+            enrichCachedNames()
+        }
+        let osChanged = cached?.osVersion != Self.osVersion
+        catalogueMonitor.start(paths: Self.appRoots.map(\.path), since: cached?.eventID) { [weak self] historyChanged in
+            Task { @MainActor in
+                guard let self else { return }
+                if cached == nil || cached?.eventID == nil || historyChanged || osChanged {
+                    self.refreshCatalogue()
+                } else {
+                    self.noteCatalogueFresh()
+                }
+            }
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.scheduleCatalogueRefresh()
+            }
         }
     }
 
@@ -151,9 +198,8 @@ final class QuickFindModel: NSObject, ObservableObject {
     }
 
     private func rankedApps(matching text: String) -> [SearchResult] {
-        let normalizedQuery = FuzzyMatcher.normalize(text)
         return appEntries.compactMap { entry -> (Double, URL)? in
-            guard let rank = UsageTracker.shared.score(normalizedName: entry.normalizedName, query: normalizedQuery, url: entry.url) else { return nil }
+            guard let rank = UsageTracker.shared.bestScore(names: entry.names, query: text, url: entry.url) else { return nil }
             return (rank, entry.url)
         }
         .sorted {
@@ -168,87 +214,207 @@ final class QuickFindModel: NSObject, ObservableObject {
     }
 
     private func startFileSearch(for text: String) {
-        stopFileSearch()
-        guard !text.isEmpty else {
+        cancelFileQueries()
+        let tokens = text.split(whereSeparator: { $0.isWhitespace }).map(String.init).filter { !$0.isEmpty }
+        guard !tokens.isEmpty else {
             searchingFiles = false
             return
         }
-        let query = NSMetadataQuery()
-        query.searchScopes = [NSMetadataQueryLocalComputerScope]
-        query.predicate = NSPredicate(
-            format: "%K CONTAINS[cd] %@ AND %K != %@",
-            NSMetadataItemFSNameKey, text, NSMetadataItemContentTypeKey, "com.apple.application-bundle"
+        fileSearchPublished = false
+        gatheredFileURLs = []
+        let notApp = NSPredicate(format: "%K != %@", NSMetadataItemContentTypeKey, "com.apple.application-bundle")
+        let containsTokens = tokens.map {
+            NSPredicate(format: "%K CONTAINS[cd] %@", NSMetadataItemFSNameKey, $0)
+        }
+        beginFileQuery(
+            NSCompoundPredicate(andPredicateWithSubpredicates: containsTokens + [notApp]),
+            limit: 400
         )
-        query.valueListAttributes = [NSMetadataItemPathKey, NSMetadataItemURLKey, NSMetadataItemFSNameKey, NSMetadataItemContentTypeKey]
-        query.sortDescriptors = [NSSortDescriptor(key: NSMetadataItemFSNameKey, ascending: true)]
-        metadataQuery = query
-        NotificationCenter.default.addObserver(self, selector: #selector(metadataQueryDidFinish(_:)), name: .NSMetadataQueryDidFinishGathering, object: query)
-        query.start()
+        var strongMatches: [NSPredicate] = tokens.filter { $0.count >= 2 }.map {
+            NSPredicate(format: "%K BEGINSWITH[cd] %@", NSMetadataItemFSNameKey, $0)
+        }
+        for token in tokens where token.count >= 2 {
+            for separator in [" ", "_", "-", "."] {
+                strongMatches.append(NSPredicate(format: "%K CONTAINS[cd] %@", NSMetadataItemFSNameKey, separator + token))
+            }
+        }
+        if !strongMatches.isEmpty {
+            beginFileQuery(
+                NSCompoundPredicate(andPredicateWithSubpredicates: [
+                    NSCompoundPredicate(orPredicateWithSubpredicates: strongMatches),
+                    notApp
+                ]),
+                limit: 200
+            )
+        }
+        guard !activeFileQueries.isEmpty else {
+            searchingFiles = false
+            return
+        }
         let timeout = DispatchWorkItem { [weak self] in
-            guard let self, self.metadataQuery === query else { return }
-            self.finishFileSearch(query)
+            self?.publishFileResults()
         }
         fileSearchTimeout = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: timeout)
     }
 
-    @objc private func metadataQueryDidFinish(_ notification: Notification) {
-        guard let query = notification.object as? NSMetadataQuery, metadataQuery === query else { return }
-        finishFileSearch(query)
+    private func beginFileQuery(_ predicate: NSPredicate, limit: Int) {
+        let query = NSMetadataQuery()
+        query.searchScopes = [NSMetadataQueryLocalComputerScope]
+        query.predicate = predicate
+        query.valueListAttributes = [NSMetadataItemPathKey, NSMetadataItemURLKey, NSMetadataItemFSNameKey, NSMetadataItemContentTypeKey, NSMetadataItemFSContentChangeDateKey]
+        query.sortDescriptors = [NSSortDescriptor(key: NSMetadataItemFSContentChangeDateKey, ascending: false)]
+        fileQueryLimits[ObjectIdentifier(query)] = limit
+        activeFileQueries.append(query)
+        NotificationCenter.default.addObserver(self, selector: #selector(metadataQueryDidFinish(_:)), name: .NSMetadataQueryDidFinishGathering, object: query)
+        query.start()
     }
 
-    private func finishFileSearch(_ query: NSMetadataQuery) {
-        fileSearchTimeout?.cancel()
-        fileSearchTimeout = nil
-        query.disableUpdates()
-        let trimmed: String
-        if case .search(let text) = ParsedQuery.parse(self.query) {
-            trimmed = text
-        } else {
-            searchingFiles = false
-            stopFileSearch()
-            return
+    @objc private func metadataQueryDidFinish(_ notification: Notification) {
+        guard let query = notification.object as? NSMetadataQuery,
+              let index = activeFileQueries.firstIndex(where: { $0 === query }) else { return }
+        absorb(query)
+        activeFileQueries.remove(at: index)
+        NotificationCenter.default.removeObserver(self, name: .NSMetadataQueryDidFinishGathering, object: query)
+        query.stop()
+        if activeFileQueries.isEmpty {
+            publishFileResults()
         }
-        // Rank a larger Spotlight sample so alphabetical ordering is less likely to hide strong matches.
-        let count = min(query.resultCount, 250)
-        let items = (0..<count).compactMap { query.result(at: $0) as? NSMetadataItem }
-        let files = items.compactMap { item -> (Double, SearchResult)? in
+    }
+
+    private func absorb(_ query: NSMetadataQuery) {
+        query.disableUpdates()
+        let limit = fileQueryLimits[ObjectIdentifier(query)] ?? 400
+        let count = min(query.resultCount, limit)
+        for index in 0..<count {
+            guard let item = query.result(at: index) as? NSMetadataItem else { continue }
             let path = (item.value(forAttribute: NSMetadataItemPathKey) as? String)
                 ?? (item.value(forAttribute: NSMetadataItemURLKey) as? String)
-            guard let path, !path.isEmpty else { return nil }
+            guard let path, !path.isEmpty else { continue }
             let url = URL(fileURLWithPath: path)
             guard url.pathExtension != "app",
-                  !path.contains("/.Trash/") && !path.hasSuffix("/.Trash") else { return nil }
-            let result = SearchResult.file(url: url)
-            guard let rank = UsageTracker.shared.score(name: result.title, query: trimmed, url: url) else { return nil }
-            return (rank, result)
+                  !path.contains("/.Trash/") && !path.hasSuffix("/.Trash") else { continue }
+            gatheredFileURLs.append(url)
         }
-        .sorted {
-            if $0.0 == $1.0 { return $0.1.title.localizedStandardCompare($1.1.title) == .orderedAscending }
-            return $0.0 < $1.0
+    }
+
+    private func publishFileResults() {
+        guard !fileSearchPublished else { return }
+        fileSearchPublished = true
+        fileSearchTimeout?.cancel()
+        fileSearchTimeout = nil
+        for query in activeFileQueries {
+            absorb(query)
+            NotificationCenter.default.removeObserver(self, name: .NSMetadataQueryDidFinishGathering, object: query)
+            query.stop()
         }
-        .prefix(35)
-        .map(\.1)
+        activeFileQueries = []
+        fileQueryLimits = [:]
+
+        guard case .search(let text) = ParsedQuery.parse(self.query) else {
+            searchingFiles = false
+            gatheredFileURLs = []
+            return
+        }
+
+        var seen = Set<String>()
+        let files = gatheredFileURLs.filter { seen.insert($0.standardizedFileURL.path).inserted }
+            .compactMap { url -> (Double, SearchResult)? in
+                let result = SearchResult.file(url: url)
+                guard let rank = UsageTracker.shared.score(name: result.title, query: text, url: url) else { return nil }
+                return (rank, result)
+            }
+            .sorted {
+                if $0.0 == $1.0 { return $0.1.title.localizedStandardCompare($1.1.title) == .orderedAscending }
+                return $0.0 < $1.0
+            }
+            .prefix(35)
+            .map(\.1)
 
         let appResults = results.filter { $0.kind == .app }
         results = (appResults + files).uniqued(by: \.id)
+        gatheredFileURLs = []
         searchingFiles = false
-        stopFileSearch()
     }
 
     private func stopFileSearch() {
-        fileSearchTimeout?.cancel()
-        fileSearchTimeout = nil
-        if let metadataQuery {
-            NotificationCenter.default.removeObserver(self, name: .NSMetadataQueryDidFinishGathering, object: metadataQuery)
-            metadataQuery.stop()
-        }
-        metadataQuery = nil
+        cancelFileQueries()
         searchingFiles = false
     }
 
-    nonisolated private static func discoverApps() -> [URL] {
-        let appRoots = [
+    private func cancelFileQueries() {
+        fileSearchTimeout?.cancel()
+        fileSearchTimeout = nil
+        fileSearchPublished = true
+        for query in activeFileQueries {
+            NotificationCenter.default.removeObserver(self, name: .NSMetadataQueryDidFinishGathering, object: query)
+            query.stop()
+        }
+        activeFileQueries = []
+        fileQueryLimits = [:]
+        gatheredFileURLs = []
+    }
+
+    private func loadCatalogue() -> CachedAppCatalogue? {
+        guard let data = UserDefaults.standard.data(forKey: appCatalogueKey),
+              let cached = try? JSONDecoder().decode(CachedAppCatalogue.self, from: data) else { return nil }
+        return cached
+    }
+
+    private func enrichCachedNames() {
+        let token = catalogueToken
+        let urls = appEntries.map(\.url)
+        Task { [weak self] in
+            let entries = await Task.detached(priority: .utility) {
+                urls.map { AppSearchEntry(url: $0) }
+            }.value
+            guard let self, token == self.catalogueToken else { return }
+            self.appEntries = entries
+            self.search()
+        }
+    }
+
+    private func scheduleCatalogueRefresh() {
+        catalogueRefresh?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.refreshCatalogue() }
+        catalogueRefresh = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+    }
+
+    private func refreshCatalogue() {
+        catalogueRefresh?.cancel()
+        catalogueToken += 1
+        let token = catalogueToken
+        let eventID = FSEventsGetCurrentEventId()
+        Task { [weak self] in
+            let entries = await Task.detached(priority: .utility) {
+                Self.discoverApps().map { AppSearchEntry(url: $0) }
+            }.value
+            guard let self, token == self.catalogueToken else { return }
+            self.appEntries = entries
+            self.appsReady = true
+            self.saveCatalogue(paths: entries.map(\.url.path), eventID: eventID)
+            self.search()
+        }
+    }
+
+    private func noteCatalogueFresh() {
+        saveCatalogue(paths: appEntries.map(\.url.path), eventID: FSEventsGetCurrentEventId())
+    }
+
+    private func saveCatalogue(paths: [String], eventID: FSEventStreamEventId) {
+        let cached = CachedAppCatalogue(paths: paths, eventID: UInt64(eventID), osVersion: Self.osVersion)
+        if let data = try? JSONEncoder().encode(cached) {
+            UserDefaults.standard.set(data, forKey: appCatalogueKey)
+        }
+    }
+
+    nonisolated private static var osVersion: String {
+        ProcessInfo.processInfo.operatingSystemVersionString
+    }
+
+    nonisolated private static var appRoots: [URL] {
+        [
             URL(fileURLWithPath: "/Applications"),
             URL(fileURLWithPath: "/System/Applications"),
             URL(fileURLWithPath: "/System/Cryptexes/App/System/Applications"),
@@ -256,6 +422,10 @@ final class QuickFindModel: NSObject, ObservableObject {
             URL(fileURLWithPath: "/System/Library/CoreServices/Applications"),
             FileManager.default.homeDirectoryForCurrentUser.appending(path: "Applications")
         ]
+    }
+
+    nonisolated private static func discoverApps() -> [URL] {
+        let appRoots = Self.appRoots
         let discoveredApps = appRoots.flatMap { root -> [URL] in
             guard FileManager.default.fileExists(atPath: root.path) else { return [] }
             var apps: [URL] = []

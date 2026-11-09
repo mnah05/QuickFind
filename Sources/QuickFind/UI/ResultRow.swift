@@ -117,13 +117,21 @@ struct ResultRow: View {
     }
 
     private var highlightedTitle: Text {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty, let range = result.title.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) else {
+        guard let hit = FuzzyMatcher.match(candidate: result.title, query: query), !hit.ranges.isEmpty else {
             return Text(result.title)
         }
-        let before = String(result.title[..<range.lowerBound])
-        let match = String(result.title[range])
-        let after = String(result.title[range.upperBound...])
-        return Text(before) + Text(match).fontWeight(.bold).foregroundStyle(Color.accentColor) + Text(after)
+        var text = Text("")
+        var cursor = result.title.startIndex
+        for range in hit.ranges where range.lowerBound >= cursor && range.upperBound <= result.title.endIndex {
+            if cursor < range.lowerBound {
+                text = text + Text(String(result.title[cursor..<range.lowerBound]))
+            }
+            text = text + Text(String(result.title[range])).fontWeight(.bold).foregroundStyle(Color.accentColor)
+            cursor = range.upperBound
+        }
+        if cursor < result.title.endIndex {
+            text = text + Text(String(result.title[cursor...]))
+        }
+        return text
     }
 }

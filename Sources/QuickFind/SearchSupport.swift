@@ -27,11 +27,16 @@ final class UsageTracker: ObservableObject {
     }
 
     func score(name: String, query: String, url: URL) -> Double? {
-        score(normalizedName: FuzzyMatcher.normalize(name), query: FuzzyMatcher.normalize(query), url: url)
+        guard let matchScore = FuzzyMatcher.match(candidate: name, query: query)?.score else { return nil }
+        return adjusted(matchScore, url: url)
     }
 
-    func score(normalizedName: String, query: String, url: URL) -> Double? {
-        guard let matchScore = FuzzyMatcher.score(normalizedName: normalizedName, normalizedQuery: query) else { return nil }
+    /// Lowest score wins. Each name is an alias (filename, display name, bundle-id suffix).
+    func bestScore(names: [String], query: String, url: URL) -> Double? {
+        names.compactMap { score(name: $0, query: query, url: url) }.min()
+    }
+
+    private func adjusted(_ matchScore: Double, url: URL) -> Double {
         let record = records[url.standardizedFileURL.path]
         let usageBoost = min(log1p(Double(record?.count ?? 0)) * 3.5, 14)
         let ageHours = record.map { max(Date().timeIntervalSince($0.lastUsed) / 3600, 0) } ?? 10_000
@@ -54,38 +59,212 @@ final class UsageTracker: ObservableObject {
     }
 }
 
+struct FuzzyHit: Equatable {
+    var score: Double
+    var ranges: [Range<String.Index>]
+}
+
 enum FuzzyMatcher {
-    static func score(name: String, query: String) -> Double? {
-        score(normalizedName: normalize(name), normalizedQuery: normalize(query.trimmingCharacters(in: .whitespacesAndNewlines)))
+    /// Lower scores rank first.
+    /// Exact 0, prefix ~25, word prefix ~45, acronym ~50, substring ~65, scattered subsequence ~70+.
+    /// Multi-word queries require every token to match; the score is the average of the token scores.
+    static func match(candidate: String, query: String) -> FuzzyHit? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let units = Unit.make(from: candidate)
+        guard !units.isEmpty else { return nil }
+
+        let foldedQuery = fold(trimmed)
+        if units.map(\.folded) == foldedQuery {
+            return FuzzyHit(score: 0, ranges: [candidate.startIndex..<candidate.endIndex])
+        }
+
+        let tokens = trimmed.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard !tokens.isEmpty else { return nil }
+        if tokens.count == 1 {
+            return matchToken(units, in: candidate, token: tokens[0])
+        }
+
+        var total = 0.0
+        var ranges: [Range<String.Index>] = []
+        for token in tokens {
+            guard let hit = matchToken(units, in: candidate, token: token) else { return nil }
+            total += hit.score
+            ranges.append(contentsOf: hit.ranges)
+        }
+        var score = total / Double(tokens.count)
+        if let contiguous = contiguousMatch(units, in: candidate, needle: foldedQuery), contiguous.score < score {
+            score = contiguous.score
+        }
+        return FuzzyHit(score: score, ranges: merge(ranges))
     }
 
-    static func score(normalizedName candidate: String, normalizedQuery needle: String) -> Double? {
-        guard !needle.isEmpty else { return nil }
-        if candidate == needle { return 0 }
-        if candidate.hasPrefix(needle) { return 25 + Double(candidate.count - needle.count) * 0.03 }
-
-        let words = candidate.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-        if words.contains(where: { $0.hasPrefix(needle) }) { return 45 + Double(candidate.count - needle.count) * 0.05 }
-        if let range = candidate.range(of: needle) { return 65 + Double(candidate.distance(from: candidate.startIndex, to: range.lowerBound)) * 0.12 }
-
-        let candidateChars = Array(candidate)
-        let queryChars = Array(needle)
-        var queryIndex = 0
-        var lastMatchIndex: Int?
-        var firstMatchIndex = 0
-        var gaps = 0
-        for (index, character) in candidateChars.enumerated() where queryIndex < queryChars.count {
-            guard character == queryChars[queryIndex] else { continue }
-            if queryIndex == 0 { firstMatchIndex = index }
-            if let lastMatchIndex, index > lastMatchIndex + 1 { gaps += index - lastMatchIndex - 1 }
-            lastMatchIndex = index
-            queryIndex += 1
-        }
-        guard queryIndex == queryChars.count else { return nil }
-        return 95 + Double(gaps) * 2.2 + Double(firstMatchIndex) * 0.6 + Double(candidateChars.count - queryChars.count) * 0.04
+    static func score(name: String, query: String) -> Double? {
+        match(candidate: name, query: query)?.score
     }
 
     static func normalize(_ value: String) -> String {
         value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).lowercased()
+    }
+
+    private static func matchToken(_ units: [Unit], in candidate: String, token: String) -> FuzzyHit? {
+        let needle = fold(token)
+        guard !needle.isEmpty, needle.count <= units.count else { return nil }
+        if units.map(\.folded) == needle {
+            return FuzzyHit(score: 0, ranges: [candidate.startIndex..<candidate.endIndex])
+        }
+        if let prefix = prefixMatch(units, in: candidate, needle: needle) { return prefix }
+        if let wordPrefix = wordPrefixMatch(units, in: candidate, needle: needle) { return wordPrefix }
+        return [substringMatch(units, in: candidate, needle: needle),
+                acronymMatch(units, in: candidate, needle: needle),
+                subsequenceMatch(units, in: candidate, needle: needle)]
+            .compactMap { $0 }
+            .min { $0.score < $1.score }
+    }
+
+    private static func contiguousMatch(_ units: [Unit], in candidate: String, needle: [Character]) -> FuzzyHit? {
+        if let prefix = prefixMatch(units, in: candidate, needle: needle) { return prefix }
+        return substringMatch(units, in: candidate, needle: needle)
+    }
+
+    private static func prefixMatch(_ units: [Unit], in candidate: String, needle: [Character]) -> FuzzyHit? {
+        guard units.count >= needle.count else { return nil }
+        guard Array(units.prefix(needle.count).map(\.folded)) == needle else { return nil }
+        let extra = units.count - needle.count
+        let sources = units.prefix(needle.count).map(\.source)
+        return FuzzyHit(score: 25 + Double(extra) * 0.03, ranges: ranges(for: sources, in: candidate))
+    }
+
+    private static func wordPrefixMatch(_ units: [Unit], in candidate: String, needle: [Character]) -> FuzzyHit? {
+        let extra = units.count - needle.count
+        for index in units.indices where units[index].isBoundary {
+            guard index + needle.count <= units.count else { continue }
+            let slice = units[index..<(index + needle.count)]
+            guard slice.map(\.folded) == needle else { continue }
+            return FuzzyHit(score: 45 + Double(extra) * 0.05, ranges: ranges(for: slice.map(\.source), in: candidate))
+        }
+        return nil
+    }
+
+    private static func substringMatch(_ units: [Unit], in candidate: String, needle: [Character]) -> FuzzyHit? {
+        guard units.count >= needle.count else { return nil }
+        for start in 0...(units.count - needle.count) {
+            let slice = units[start..<(start + needle.count)]
+            guard slice.map(\.folded) == needle else { continue }
+            return FuzzyHit(score: 65 + Double(start) * 0.12, ranges: ranges(for: slice.map(\.source), in: candidate))
+        }
+        return nil
+    }
+
+    /// Query characters that each land on a word start or camelCase boundary, in order.
+    private static func acronymMatch(_ units: [Unit], in candidate: String, needle: [Character]) -> FuzzyHit? {
+        var queryIndex = 0
+        var skippedBoundaries = 0
+        var matched: [String.Index] = []
+        var first = 0
+        for (index, unit) in units.enumerated() where unit.isBoundary {
+            guard queryIndex < needle.count else { break }
+            if unit.folded == needle[queryIndex] {
+                if queryIndex == 0 { first = index }
+                matched.append(unit.source)
+                queryIndex += 1
+            } else {
+                skippedBoundaries += 1
+            }
+        }
+        guard queryIndex == needle.count else { return nil }
+        let extra = units.count - needle.count
+        let score = 50 + Double(skippedBoundaries) * 1.4 + Double(first) * 0.15 + Double(extra) * 0.04
+        guard score < 65 else { return nil }
+        return FuzzyHit(score: score, ranges: ranges(for: matched, in: candidate))
+    }
+
+    private static func subsequenceMatch(_ units: [Unit], in candidate: String, needle: [Character]) -> FuzzyHit? {
+        var queryIndex = 0
+        var lastMatch: Int?
+        var first = 0
+        var gaps = 0
+        var boundaryHits = 0
+        var matched: [String.Index] = []
+        for (index, unit) in units.enumerated() where queryIndex < needle.count {
+            guard unit.folded == needle[queryIndex] else { continue }
+            if queryIndex == 0 { first = index }
+            if let lastMatch, index > lastMatch + 1 { gaps += index - lastMatch - 1 }
+            if unit.isBoundary { boundaryHits += 1 }
+            lastMatch = index
+            matched.append(unit.source)
+            queryIndex += 1
+        }
+        guard queryIndex == needle.count else { return nil }
+        let extra = units.count - needle.count
+        let raw = 95 + Double(gaps) * 2.2 + Double(first) * 0.6 + Double(extra) * 0.04
+        let discount = min(Double(boundaryHits) * 6, 25)
+        return FuzzyHit(score: max(70, raw - discount), ranges: ranges(for: matched, in: candidate))
+    }
+
+    private static func fold(_ value: String) -> [Character] {
+        var output: [Character] = []
+        output.reserveCapacity(value.count)
+        for character in value {
+            let folded = String(character).folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).lowercased()
+            output.append(contentsOf: folded)
+        }
+        return output
+    }
+
+    private static func ranges(for sources: [String.Index], in candidate: String) -> [Range<String.Index>] {
+        guard !sources.isEmpty else { return [] }
+        let ordered = sources.sorted()
+        var result: [Range<String.Index>] = []
+        var start = ordered[0]
+        var end = candidate.index(after: ordered[0])
+        for index in ordered.dropFirst() {
+            if index < end { continue }
+            if index == end {
+                end = candidate.index(after: index)
+            } else {
+                result.append(start..<end)
+                start = index
+                end = candidate.index(after: index)
+            }
+        }
+        result.append(start..<end)
+        return result
+    }
+
+    private static func merge(_ ranges: [Range<String.Index>]) -> [Range<String.Index>] {
+        let ordered = ranges.sorted { $0.lowerBound < $1.lowerBound }
+        var merged: [Range<String.Index>] = []
+        for range in ordered {
+            if let last = merged.last, range.lowerBound <= last.upperBound {
+                let upper = max(last.upperBound, range.upperBound)
+                merged[merged.count - 1] = last.lowerBound..<upper
+            } else {
+                merged.append(range)
+            }
+        }
+        return merged
+    }
+
+    private struct Unit {
+        var folded: Character
+        var source: String.Index
+        var isBoundary: Bool
+
+        static func make(from candidate: String) -> [Unit] {
+            var units: [Unit] = []
+            var previousAlphanumeric = false
+            var index = candidate.startIndex
+            for character in candidate {
+                let folded = String(character).folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).lowercased()
+                let boundary = units.isEmpty || !previousAlphanumeric || character.isUppercase
+                for (offset, item) in folded.enumerated() {
+                    units.append(Unit(folded: item, source: index, isBoundary: offset == 0 && boundary))
+                }
+                previousAlphanumeric = character.isLetter || character.isNumber
+                index = candidate.index(after: index)
+            }
+            return units
+        }
     }
 }
