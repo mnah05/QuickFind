@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 struct RaycastDetailPane: View {
     let result: SearchResult?
@@ -40,7 +40,6 @@ struct RaycastDetailPane: View {
     private func filePreview(_ item: SearchResult) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                // Header
                 HStack(spacing: 12) {
                     if let url = item.url {
                         Image(nsImage: FileIconCache.icon(for: url))
@@ -49,24 +48,20 @@ struct RaycastDetailPane: View {
                             .frame(width: 44, height: 44)
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(item.title)
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 15, weight: .semibold))
                             .lineLimit(2)
                         Text(item.typeDescription)
-                            .font(.system(size: 12))
+                            .font(.callout)
                             .foregroundStyle(.secondary)
                     }
                 }
                 .padding(.top, 4)
 
-                Divider().opacity(0.4)
+                Divider()
 
-                // Metadata
-                Text("INFORMATION")
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.6)
-                    .foregroundStyle(.secondary)
+                sectionLabel("INFORMATION")
 
                 VStack(spacing: 8) {
                     metaRow("Kind", item.typeDescription)
@@ -80,22 +75,18 @@ struct RaycastDetailPane: View {
                         metaRow("Modified", mod)
                     }
                     if !item.detail.isEmpty {
-                        metaRow("Where", item.detail.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~"))
+                        metaRow("Where", abbreviated(item.detail))
                     }
                 }
 
-                Divider().opacity(0.4)
+                Divider()
 
-                // Quick Actions
-                Text("QUICK ACTIONS")
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.6)
-                    .foregroundStyle(.secondary)
+                sectionLabel("QUICK ACTIONS")
 
                 VStack(spacing: 6) {
-                    actionRow(key: "↵", label: item.kind == .app ? "Open Application" : "Open File")
-                    actionRow(key: "⌘ ↵", label: "Show in Finder")
-                    actionRow(key: "⌘ ⇧ C", label: "Copy Path")
+                    actionRow("↵", item.kind == .app ? "Open Application" : "Open File")
+                    actionRow("⌘ ↵", "Show in Finder")
+                    actionRow("⌘ ⇧ C", "Copy Path")
                 }
             }
             .padding(18)
@@ -112,28 +103,31 @@ struct RaycastDetailPane: View {
             HStack(spacing: 10) {
                 Image(systemName: "doc.on.clipboard.fill")
                     .font(.system(size: 16))
+                    .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(Color.accentColor)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Clipboard Entry")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.headline)
                     Text("\(charCount) characters · \(wordCount) words")
-                        .font(.system(size: 11))
+                        .font(.caption)
+                        .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
                 if isPinned {
                     Label("Pinned", systemImage: "pin.fill")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.caption2)
+                        .fontWeight(.medium)
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
                         .background(Color.accentColor.opacity(0.12), in: Capsule())
                 }
             }
-            .padding(.top, 14)
-            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.horizontal, 18)
 
-            Divider().opacity(0.4)
+            Divider()
 
             ScrollView {
                 Text(text)
@@ -143,66 +137,73 @@ struct RaycastDetailPane: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(12)
-                    .background(Color.black.opacity(0.2), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
                     )
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 16)
         }
     }
 
     private func calculationView(_ calc: CalculationDisplay) -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             Spacer()
-            VStack(spacing: 8) {
-                Text(calc.expression)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.secondary)
+            Text(calc.expression)
+                .font(.callout)
+                .foregroundStyle(.secondary)
 
-                Text(calc.output)
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .foregroundStyle(calc.state == .error ? Color.orange : .primary)
-                    .textSelection(.enabled)
-                    .multilineTextAlignment(.center)
+            Text(calc.output)
+                .font(.system(size: 32, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(calc.state == .error ? Color.orange : Color.primary)
+                .contentTransition(.numericText())
+                .animation(.snappy(duration: 0.2), value: calc.output)
+                .textSelection(.enabled)
+                .multilineTextAlignment(.center)
 
-                Text(calc.detail)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 24)
+            Text(calc.detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             if calc.state == .value {
-                HStack(spacing: 4) {
+                HStack(spacing: 5) {
                     KeyCap(text: "↵")
                     Text("Copy to clipboard")
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.top, 4)
             }
             Spacer()
         }
+        .padding(.horizontal, 24)
+    }
+
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold))
+            .tracking(0.6)
+            .foregroundStyle(.secondary)
     }
 
     private func metaRow(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(label)
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .frame(width: 65, alignment: .leading)
-            Text(value)
+            Text(verbatim: value)
                 .font(.system(size: 11.5))
-                .foregroundStyle(.primary.opacity(0.88))
+                .foregroundStyle(.primary.opacity(0.92))
                 .lineLimit(2)
                 .truncationMode(.middle)
             Spacer()
         }
     }
 
-    private func actionRow(key: String, label: String) -> some View {
+    private func actionRow(_ key: String, _ label: String) -> some View {
         HStack(spacing: 8) {
             KeyCap(text: key)
             Text(label)
@@ -210,5 +211,12 @@ struct RaycastDetailPane: View {
                 .foregroundStyle(.secondary)
             Spacer()
         }
+    }
+
+    private func abbreviated(_ path: String) -> String {
+        path.replacingOccurrences(
+            of: FileManager.default.homeDirectoryForCurrentUser.path,
+            with: "~"
+        )
     }
 }

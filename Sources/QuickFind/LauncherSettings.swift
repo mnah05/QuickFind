@@ -220,9 +220,9 @@ struct PreferencesView: View {
     let goBack: () -> Void
 
     var body: some View {
-        ScrollView {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
+        VStack(spacing: 0) {
+            // Header bar
+            HStack(spacing: 12) {
                 Button {
                     if recorder.isRecording {
                         recorder.isRecording = false
@@ -230,101 +230,205 @@ struct PreferencesView: View {
                     }
                     goBack()
                 } label: {
-                    Image(systemName: "chevron.left").font(.system(size: 12, weight: .semibold))
-                        .frame(width: 28, height: 28).background(Color.primary.opacity(0.05), in: Circle())
-                }.buttonStyle(.plain).help("Back to search")
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("QuickFind settings").font(.system(size: 15, weight: .semibold))
-                    Text("Shortcuts and privacy").font(.system(size: 11)).foregroundStyle(.secondary)
+                    HStack(spacing: 5) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Back")
+                            .font(.system(size: 12.5, weight: .medium))
+                    }
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
-                Spacer()
-            }.padding(.bottom, 18)
+                .buttonStyle(.plain)
+                .help("Back to search (Esc)")
 
-            Text("LAUNCHER").font(.system(size: 10, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
-            HStack {
-                Label("Global shortcut", systemImage: "keyboard")
                 Spacer()
-                Picker("Global shortcut", selection: $preferences.selectedShortcutID) {
-                    ForEach(ShortcutOption.all) { option in Text(option.title).tag(option.id) }
-                    if let custom = preferences.customShortcut { Text("Custom · \(custom.title)").tag(custom.id) }
-                }.labelsHidden().pickerStyle(.menu).frame(width: 145)
-            }.padding(.top, 8)
-            Text(shortcutStatus.message).font(.system(size: 11)).foregroundStyle(shortcutStatus.isRegistered ? Color.gray : Color.orange).padding(.leading, 25).padding(.top, 3)
-            if recorder.isRecording {
-                ShortcutCaptureView(onCapture: { keyCode, modifiers, title in
-                    preferences.setCustomShortcut(keyCode: keyCode, modifiers: modifiers, title: title)
-                    recorder.hint = "Saved \(title)."
-                    recorder.isRecording = false
-                    NotificationCenter.default.post(name: .shortcutCaptureEnded, object: nil)
-                }, onCancel: {
-                    recorder.isRecording = false
-                    recorder.hint = "Shortcut recording cancelled."
-                    NotificationCenter.default.post(name: .shortcutCaptureEnded, object: nil)
-                }, onInvalid: { recorder.hint = $0 })
-                    .frame(height: 36)
-                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
-                    .padding(.top, 8)
-                Text(recorder.hint).font(.system(size: 11)).foregroundStyle(.secondary).padding(.leading, 25).padding(.top, 3)
-            } else {
-                Button("Record a custom shortcut…") {
-                    recorder.hint = "Use at least one modifier key, such as ⌥ or ⌘."
-                    recorder.isRecording = true
-                    NotificationCenter.default.post(name: .shortcutCaptureBegan, object: nil)
-                }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Color.accentColor).padding(.leading, 25).padding(.top, 7)
+
+                Text("QuickFind Settings")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                Color.clear.frame(width: 60, height: 24)
             }
+            .padding(.horizontal, 18)
+            .frame(height: 50)
 
-            Toggle(isOn: Binding(get: { loginItem.isEnabled }, set: { loginItem.setEnabled($0) })) {
-                Label("Open at login", systemImage: "power")
-            }.toggleStyle(.switch).padding(.top, 16)
-            Text(loginItem.message).font(.system(size: 11)).foregroundStyle(.secondary).padding(.leading, 25).padding(.top, 3)
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 1)
 
-            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1).padding(.vertical, 16)
-            Text("CLIPBOARD").font(.system(size: 10, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
-            Toggle(isOn: $clipboard.isPaused) {
-                Label("Pause clipboard capture", systemImage: clipboard.isPaused ? "pause.circle" : "doc.on.clipboard")
-            }.toggleStyle(.switch).padding(.top, 8)
-            HStack {
-                Label("Auto-clear unpinned items", systemImage: "clock")
-                Spacer()
-                Picker("Auto-clear", selection: $clipboard.expiryDays) {
-                    Text("1 day").tag(1)
-                    Text("7 days").tag(7)
-                    Text("30 days").tag(30)
-                    Text("Never").tag(0)
-                }.labelsHidden().pickerStyle(.menu).frame(width: 115)
-            }.padding(.top, 12)
-            Text("Pinned items don’t expire. Clipboard text stays on this Mac.")
-                .font(.system(size: 11)).foregroundStyle(.secondary).padding(.leading, 25).padding(.top, 4)
+            // Content
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // LAUNCHER SECTION
+                    VStack(alignment: .leading, spacing: 10) {
+                        sectionHeader("LAUNCHER")
 
-            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1).padding(.vertical, 16)
-            Text("UPDATES").font(.system(size: 10, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
-            Toggle(isOn: $updates.automaticChecksEnabled) {
-                Label("Check for updates automatically", systemImage: "arrow.down.circle")
-            }.toggleStyle(.switch).padding(.top, 8)
-            HStack(alignment: .top, spacing: 8) {
-                Text(updates.statusMessage)
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 4)
-                Button("Check now") { updates.checkNow() }
-                    .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Color.accentColor)
-                    .disabled(updates.isChecking)
-            }.padding(.leading, 25).padding(.top, 5)
-            Text("When enabled, QuickFind checks GitHub at most once a day at launch. Downloads start only after you choose Download Update.")
-                .font(.system(size: 10.5)).foregroundStyle(.tertiary).padding(.leading, 25).padding(.top, 4)
+                        HStack {
+                            Text("Global shortcut")
+                                .font(.system(size: 12.5))
+                            Spacer()
+                            Picker("Global shortcut", selection: $preferences.selectedShortcutID) {
+                                ForEach(ShortcutOption.all) { option in
+                                    Text(option.title).tag(option.id)
+                                }
+                                if let custom = preferences.customShortcut {
+                                    Text("Custom · \(custom.title)").tag(custom.id)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(width: 170)
+                        }
 
-            Button(role: .destructive) { NSApp.terminate(nil) } label: {
-                Label("Quit QuickFind", systemImage: "power")
-            }.buttonStyle(.plain).foregroundStyle(.secondary)
+                        Text(shortcutStatus.message)
+                            .font(.system(size: 11))
+                            .foregroundStyle(shortcutStatus.isRegistered ? Color.secondary : Color.orange)
+
+                        if recorder.isRecording {
+                            ShortcutCaptureView(onCapture: { keyCode, modifiers, title in
+                                preferences.setCustomShortcut(keyCode: keyCode, modifiers: modifiers, title: title)
+                                recorder.hint = "Saved \(title)."
+                                recorder.isRecording = false
+                                NotificationCenter.default.post(name: .shortcutCaptureEnded, object: nil)
+                            }, onCancel: {
+                                recorder.isRecording = false
+                                recorder.hint = "Shortcut recording cancelled."
+                                NotificationCenter.default.post(name: .shortcutCaptureEnded, object: nil)
+                            }, onInvalid: { recorder.hint = $0 })
+                            .frame(height: 32)
+                            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                            Text(recorder.hint)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Button("Record a Custom Shortcut…") {
+                                recorder.hint = "Use at least one modifier key, such as ⌥ or ⌘."
+                                recorder.isRecording = true
+                                NotificationCenter.default.post(name: .shortcutCaptureBegan, object: nil)
+                            }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.accentColor)
+                        }
+
+                        Toggle(isOn: Binding(
+                            get: { loginItem.isEnabled },
+                            set: { loginItem.setEnabled($0) }
+                        )) {
+                            Label("Open at login", systemImage: "power")
+                                .font(.system(size: 12.5))
+                        }
+                        .toggleStyle(.switch)
+                        .padding(.top, 4)
+
+                        Text(loginItem.message)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 24)
+                    }
+
+                    separator
+
+                    // CLIPBOARD SECTION
+                    VStack(alignment: .leading, spacing: 10) {
+                        sectionHeader("CLIPBOARD")
+
+                        Toggle(isOn: $clipboard.isPaused) {
+                            Label("Pause clipboard capture", systemImage: clipboard.isPaused ? "pause.circle" : "doc.on.clipboard")
+                                .font(.system(size: 12.5))
+                        }
+                        .toggleStyle(.switch)
+
+                        HStack {
+                            Label("Auto-clear unpinned items", systemImage: "clock")
+                                .font(.system(size: 12.5))
+                            Spacer()
+                            Picker("Auto-clear", selection: $clipboard.expiryDays) {
+                                Text("After 1 Day").tag(1)
+                                Text("After 7 Days").tag(7)
+                                Text("After 30 Days").tag(30)
+                                Text("Never").tag(0)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(width: 140)
+                        }
+
+                        Text("Pinned items don’t expire. Clipboard text stays on this Mac.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 24)
+                    }
+
+                    separator
+
+                    // UPDATES SECTION
+                    VStack(alignment: .leading, spacing: 10) {
+                        sectionHeader("UPDATES")
+
+                        Toggle(isOn: $updates.automaticChecksEnabled) {
+                            Label("Check for updates automatically", systemImage: "arrow.down.circle")
+                                .font(.system(size: 12.5))
+                        }
+                        .toggleStyle(.switch)
+
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(updates.statusMessage)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 4)
+                            Button("Check now") { updates.checkNow() }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 12))
+                                .foregroundStyle(Color.accentColor)
+                                .disabled(updates.isChecking)
+                        }
+                        .padding(.leading, 24)
+
+                        Text("When enabled, QuickFind checks GitHub at most once a day at launch. Downloads start only after you choose Download Update.")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.secondary.opacity(0.8))
+                            .padding(.leading, 24)
+                    }
+
+                    separator
+
+                    // QUIT SECTION
+                    Button(role: .destructive) {
+                        NSApp.terminate(nil)
+                    } label: {
+                        Label("Quit QuickFind", systemImage: "power")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(Color.red.opacity(0.85))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 22)
+                .padding(.vertical, 16)
+            }
+            .scrollIndicators(.automatic)
         }
-        .padding(.horizontal, 22)
-        .padding(.top, 18)
-        .padding(.bottom, 12)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(Color.clear)
-        }
-        .scrollIndicators(.hidden)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { loginItem.refreshStatus() }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10.5, weight: .semibold))
+            .tracking(0.6)
+            .foregroundStyle(.secondary)
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.08))
+            .frame(height: 1)
+            .padding(.vertical, 4)
     }
 }

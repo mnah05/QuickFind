@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 final class LauncherPanel: NSPanel {
     static let panelSize = NSSize(width: 750, height: 480)
-    private let cornerRadius: CGFloat = 16
+    private let cornerRadius: CGFloat = 14
 
     init(rootView: some View) {
         super.init(
@@ -32,15 +32,16 @@ final class LauncherPanel: NSPanel {
         standardWindowButton(.closeButton)?.superview?.isHidden = true
 
         let effect = NSVisualEffectView(frame: NSRect(origin: .zero, size: Self.panelSize))
-        effect.material = .hudWindow
+        effect.material = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ? .windowBackground : .hudWindow
         effect.blendingMode = .behindWindow
         effect.state = .active
+        effect.isEmphasized = true
         effect.wantsLayer = true
         effect.layer?.cornerRadius = cornerRadius
         effect.layer?.masksToBounds = true
         effect.layer?.cornerCurve = .continuous
         effect.layer?.borderWidth = 1
-        effect.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
+        effect.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
         effect.autoresizingMask = [.width, .height]
         effect.setAccessibilityElement(false)
 

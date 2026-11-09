@@ -20,10 +20,12 @@ struct QuickFindView: View {
                     }
                 } else {
                     searchBar
-                    Divider().opacity(0.35)
+                    Divider()
                     splitContent
                 }
-                footer
+                if !navigation.showingSettings {
+                    footer
+                }
             }
             .frame(width: LauncherPanel.panelSize.width, height: LauncherPanel.panelSize.height)
             .background(Color.clear)
@@ -32,14 +34,14 @@ struct QuickFindView: View {
             if actionPanel.isShowing {
                 Color.black.opacity(0.25)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { actionPanel.isShowing = false } }
+                    .onTapGesture { withAnimation(.snappy(duration: 0.18)) { actionPanel.isShowing = false } }
 
                 RaycastActionPanel(
                     result: selectedResult,
                     calculation: model.calculation,
-                    onDismiss: { withAnimation(.easeInOut(duration: 0.15)) { actionPanel.isShowing = false; focused = true } },
+                    onDismiss: { withAnimation(.snappy(duration: 0.18)) { actionPanel.isShowing = false; focused = true } },
                     onOpenPreferences: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
+                        withAnimation(.snappy(duration: 0.18)) {
                             actionPanel.isShowing = false
                             navigation.showingSettings = true
                         }
@@ -52,7 +54,7 @@ struct QuickFindView: View {
         }
         .onKeyPress(.escape) {
             if actionPanel.isShowing {
-                withAnimation(.easeInOut(duration: 0.15)) { actionPanel.isShowing = false }
+                withAnimation(.snappy(duration: 0.18)) { actionPanel.isShowing = false }
                 focused = true
                 return .handled
             }
@@ -153,7 +155,7 @@ struct QuickFindView: View {
                 }
                 .onKeyPress(keys: [KeyEquivalent("k"), KeyEquivalent("K")]) { press in
                     guard press.modifiers.contains(.command) else { return .ignored }
-                    withAnimation(.easeInOut(duration: 0.15)) { actionPanel.isShowing.toggle() }
+                    withAnimation(.snappy(duration: 0.18)) { actionPanel.isShowing.toggle() }
                     return .handled
                 }
                 .onKeyPress(keys: [KeyEquivalent(",")]) { press in
@@ -218,10 +220,11 @@ struct QuickFindView: View {
                         Spacer()
                         ProgressView().controlSize(.small)
                         Text(model.appsReady ? "Searching files…" : "Indexing applications…")
-                            .font(.system(size: 12.5))
+                            .font(.callout)
                             .foregroundStyle(.secondary)
                         Spacer()
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if model.results.isEmpty && model.calculation == nil {
                     VStack(spacing: 8) {
                         Spacer()
@@ -230,9 +233,10 @@ struct QuickFindView: View {
                             .foregroundStyle(.tertiary)
                         Text("No Results Found")
                             .font(.system(size: 13.5, weight: .medium))
+                            .foregroundStyle(.secondary)
                         Text("Try a different search term or check spelling.")
                             .font(.system(size: 11.5))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.tertiary)
                         Spacer()
                     }
                 } else {
@@ -242,7 +246,7 @@ struct QuickFindView: View {
             .frame(width: 395)
 
             // Vertical 1px Divider
-            Divider().opacity(0.35)
+            Divider()
 
             // Right: Raycast Preview Pane
             RaycastDetailPane(result: selectedResult, calculation: model.calculation)
@@ -273,14 +277,15 @@ struct QuickFindView: View {
 
     @ViewBuilder
     private var headerSectionLabel: some View {
-        HStack {
+        HStack(alignment: .firstTextBaseline) {
             Text(currentSectionTitle)
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(0.6)
+                .font(.caption)
+                .fontWeight(.semibold)
                 .foregroundStyle(.secondary)
             Spacer()
             Text("\(model.results.count)")
-                .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                .font(.caption2)
+                .monospacedDigit()
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 10)
@@ -291,13 +296,13 @@ struct QuickFindView: View {
     private var currentSectionTitle: String {
         switch model.parsed {
         case .empty:
-            return "SUGGESTIONS"
+            return "Suggestions"
         case .clipboard:
-            return "CLIPBOARD HISTORY"
+            return "Clipboard"
         case .currency, .calculation:
-            return "CALCULATOR"
+            return "Calculator"
         case .search:
-            return "RESULTS"
+            return "Results"
         }
     }
 
@@ -358,7 +363,7 @@ struct QuickFindView: View {
                 KeyCap(text: "↵")
                 Text(footerReturnActionLabel)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.primary.opacity(0.85))
+                    .foregroundStyle(.primary.opacity(0.90))
             }
 
             // Secondary action: Show in Finder
@@ -392,7 +397,7 @@ struct QuickFindView: View {
 
             // Actions (⌘K)
             Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(.snappy(duration: 0.18)) {
                     actionPanel.isShowing.toggle()
                 }
             } label: {
@@ -417,7 +422,7 @@ struct QuickFindView: View {
         .frame(height: 40)
         .background(Color.black.opacity(0.25))
         .overlay(alignment: .top) {
-            Divider().opacity(0.35)
+            Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
         }
     }
 

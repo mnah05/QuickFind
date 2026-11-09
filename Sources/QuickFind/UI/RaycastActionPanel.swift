@@ -170,7 +170,7 @@ struct RaycastActionPanel: View {
                     .foregroundStyle(.secondary)
                 TextField("Search actions…", text: $state.filter)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(.body)
                     .focused($isFieldFocused)
                     .onSubmit {
                         executeSelected()
@@ -199,9 +199,8 @@ struct RaycastActionPanel: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(Color.white.opacity(0.04))
 
-            Divider().opacity(0.3)
+            Divider()
 
             // Action Items
             ScrollViewReader { proxy in
@@ -231,7 +230,7 @@ struct RaycastActionPanel: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color.white.opacity(0.14), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.4), radius: 24, x: 0, y: 12)
+        .shadow(color: .black.opacity(0.35), radius: 24, x: 0, y: 12)
         .onAppear {
             isFieldFocused = true
             state.filter = ""
@@ -245,13 +244,15 @@ struct RaycastActionPanel: View {
     private func actionRow(item: ActionItem, selected: Bool) -> some View {
         HStack(spacing: 10) {
             Image(systemName: item.icon)
-                .font(.system(size: 12))
-                .foregroundStyle(selected ? Color.accentColor : .secondary)
+                .font(.system(size: 13))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(selected ? Color.accentColor : Color.secondary)
                 .frame(width: 18)
 
             Text(item.title)
-                .font(.system(size: 12.5, weight: selected ? .medium : .regular))
-                .foregroundStyle(Color.primary.opacity(selected ? 1.0 : 0.85))
+                .font(.callout)
+                .fontWeight(selected ? .medium : .regular)
+                .foregroundStyle(Color.primary.opacity(selected ? 1.0 : 0.88))
 
             Spacer()
 
